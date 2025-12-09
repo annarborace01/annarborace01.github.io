@@ -464,6 +464,10 @@
                             <span>Spin</span>
                             <div class="code-viz"><div class="code-block" style="background:green;"></div><div class="code-block" style="background:red;"></div><div class="code-block" style="background:green;"></div><div class="code-block" style="background:red;"></div></div>
                         </div>
+                        <div class="help-item">
+                            <span>Win/Exit (line end)</span>
+                            <div class="code-viz"><div class="code-block" style="background:green;"></div><div class="code-block" style="background:red;"></div></div>
+                        </div>
 
                         <div style="font-weight:bold; margin:10px 0 5px; font-size:12px; color:#666;">TIMER</div>
                         <div class="help-item">
@@ -546,6 +550,10 @@
                         <div style="font-size: 16px;">✨ Special Moves</div>
                         <div style="font-size: 12px; opacity: 0.8; font-weight: normal;">Spin, Tornado, U-Turn</div>
                     </button>
+                    <button onclick="loadDemoTrack('win')" style="background: #e83e8c; text-align: left; padding: 15px;">
+                        <div style="font-size: 16px;">🏆 Win/Exit Test</div>
+                        <div style="font-size: 12px; opacity: 0.8; font-weight: normal;">Test the Game Over code</div>
+                    </button>
                 </div>
             </div>
         </div>
@@ -596,6 +604,7 @@
         'blue-red':          { name: 'U-Turn (line end)', type: 'move', val: 'u-turn' },
         'red-green-red-green': { name: 'Tornado', type: 'spin', val: 'tornado' },
         'green-red-green-red': { name: 'Spin', type: 'spin', val: 'spin' },
+        'green-red': { name: 'Win/Exit', type: 'win', val: 'win' },
         
         // === TIMER ===
         'red-black-blue-green': { name: 'Timer Stop', type: 'timer', val: null }
@@ -659,6 +668,7 @@
         robot.lineSwitchExitedCode = false;
         robot.pendingSpin = null;
         robot.spinInCode = false;
+        robot.isWin = false;
         updateUI("Idle", "Cruise", "-", "-");
         updateDirectionDisplay();
         updateTimerDisplay();
@@ -960,6 +970,23 @@
 
             updateUI("Ready", "Cruise", "-", "Spin & Tornado Lines Loaded!");
         }
+        else if (type === 'win') {
+            // === WIN/EXIT TEST ===
+            // Single line ending with Win Code
+            const r = 10;
+            // Draw line from col 2 to 14
+            for(let c=2; c<=14; c++) grid[r][c] = 'black';
+            
+            // Win Code (Green-Red) at end (cols 13, 14)
+            grid[r][13] = 'green'; 
+            grid[r][14] = 'red';
+            
+            // Robot start
+            robot.r = r;
+            robot.c = 2;
+            
+            updateUI("Ready", "Cruise", "-", "Win/Exit Test Loaded!");
+        }
         else if (type === 'lineswitch') {
             // === LINE SWITCHING ===
             // Two parallel horizontal lines
@@ -1035,6 +1062,7 @@
                 // Set robot position
                 robot.r = r;
                 robot.c = c;
+                robot.isWin = false; // Reset win state (remove smiley)
                 updateUI(null, null, null, "Robot moved!");
                 
                 // Pause the game when setting robot position
@@ -1276,14 +1304,29 @@
             }
         }
         
-        // === Special Case: U-Turn (line end) ===
-        // U-turn executes when robot is on RED cell and previous was BLUE
+        // === Special Case: U-Turn (line end) and Win/Exit ===
+        // These execute when robot is on the second color of the pair (RED)
+        // AND it is at the end of the line (next cell is white or border)
         if (!match && grid[robot.r][robot.c] === 'red') {
             const prevR = robot.r - dr[robot.dir] * 1;
             const prevC = robot.c - dc[robot.dir] * 1;
+            const nextR = robot.r + dr[robot.dir] * 1;
+            const nextC = robot.c + dc[robot.dir] * 1;
+            
+            // Check bounds for previous
             if (prevR >= 0 && prevR < GRID_H && prevC >= 0 && prevC < GRID_W) {
-                if (grid[prevR][prevC] === 'blue') {
-                    match = CODES['blue-red'];
+                 // Check if end of line (next is white or out of bounds)
+                const isEndOfLine = (nextR < 0 || nextR >= GRID_H || nextC < 0 || nextC >= GRID_W || grid[nextR][nextC] === 'white');
+
+                if (isEndOfLine) {
+                    const prevColor = grid[prevR][prevC];
+                    if (prevColor === 'blue') {
+                         // Blue-Red: U-Turn
+                         match = CODES['blue-red'];
+                    } else if (prevColor === 'green') {
+                         // Green-Red: Win/Exit
+                         match = CODES['green-red'];
+                    }
                 }
             }
         }
@@ -1323,6 +1366,19 @@
                 robot.spinInCode = true;
                 document.getElementById('statusAction').innerText = match.name + " - Detected";
                 console.log("Spin code detected:", match.name, "Pending spin:", match.val);
+            }
+            else if (match.type === 'win') {
+                // Win/Exit: Stop and show smiley face
+                stopRobot();
+                robot.isWin = true;
+                updateUI("WINNER!", "Stopped", "Game Over", "Win/Exit Code Detected!");
+                render(); // Re-render to show smiley face
+                
+                // Play animation or something?
+                // Just keeping the smiley face is good.
+                const btn = document.getElementById('playBtn');
+                btn.textContent = "▶ Start Robot";
+                btn.className = "btn-play";
             }
             else if (match.type === 'timer') {
                 // Timer starts immediately
@@ -1563,28 +1619,52 @@
         ctx.arc(cx, cy, radius, 0, Math.PI * 2);
         ctx.fill();
 
-        // Direction arrow - clear and prominent
-        ctx.save();
-        ctx.translate(cx, cy);
-        // Subtract 90° to align arrow with movement direction
-        ctx.rotate((robot.dir - 1) * Math.PI / 2);
-        
-        // Arrow shape
-        const arrowSize = radius * 0.7;
-        ctx.fillStyle = '#00ff00';
-        ctx.strokeStyle = '#ffffff';
-        ctx.lineWidth = 1.5;
-        
-        ctx.beginPath();
-        ctx.moveTo(arrowSize, 0);  // Arrow tip
-        ctx.lineTo(-arrowSize * 0.5, -arrowSize * 0.6);  // Top wing
-        ctx.lineTo(-arrowSize * 0.3, 0);  // Notch
-        ctx.lineTo(-arrowSize * 0.5, arrowSize * 0.6);  // Bottom wing
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
-        
-        ctx.restore();
+        if (robot.isWin) {
+            // Draw Smiley Face (rotated to match direction so it faces the "front")
+            ctx.save();
+            ctx.translate(cx, cy);
+            ctx.rotate((robot.dir - 1) * Math.PI / 2); // Rotate to face direction
+            
+            ctx.fillStyle = 'white';
+            ctx.strokeStyle = 'white';
+            
+            // Eyes
+            ctx.beginPath();
+            ctx.arc(-radius * 0.35, -radius * 0.2, radius * 0.15, 0, Math.PI * 2); // Left eye
+            ctx.arc(radius * 0.35, -radius * 0.2, radius * 0.15, 0, Math.PI * 2);  // Right eye
+            ctx.fill();
+            
+            // Smile
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(0, 0, radius * 0.6, 0.2 * Math.PI, 0.8 * Math.PI);
+            ctx.stroke();
+            
+            ctx.restore();
+        } else {
+            // Direction arrow - clear and prominent
+            ctx.save();
+            ctx.translate(cx, cy);
+            // Subtract 90° to align arrow with movement direction
+            ctx.rotate((robot.dir - 1) * Math.PI / 2);
+            
+            // Arrow shape
+            const arrowSize = radius * 0.7;
+            ctx.fillStyle = '#00ff00';
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 1.5;
+            
+            ctx.beginPath();
+            ctx.moveTo(arrowSize, 0);  // Arrow tip
+            ctx.lineTo(-arrowSize * 0.5, -arrowSize * 0.6);  // Top wing
+            ctx.lineTo(-arrowSize * 0.3, 0);  // Notch
+            ctx.lineTo(-arrowSize * 0.5, arrowSize * 0.6);  // Bottom wing
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+            
+            ctx.restore();
+        }
     }
 
     // Initialize on load
