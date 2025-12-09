@@ -521,6 +521,36 @@
         </div>
     </div>
 
+    <!-- Demo Menu Modal -->
+    <div id="demoModal" class="modal-overlay" onclick="closeDemoModal(event)">
+        <div class="modal-content" onclick="event.stopPropagation()" style="max-width: 500px;">
+            <div class="modal-header" style="background: #17a2b8;">
+                <span>🕹️ Select Demo Track</span>
+                <button class="modal-close" onclick="closeDemoMenu()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div style="display: grid; gap: 10px;">
+                    <button onclick="loadDemoTrack('simple')" style="background: #6c757d; text-align: left; padding: 15px;">
+                        <div style="font-size: 16px;">🏁 Simple Loop</div>
+                        <div style="font-size: 12px; opacity: 0.8; font-weight: normal;">Basic loop with a few speed codes</div>
+                    </button>
+                    <button onclick="loadDemoTrack('turns')" style="background: #007bff; text-align: left; padding: 15px;">
+                        <div style="font-size: 16px;">⤴️ Intersection Logic</div>
+                        <div style="font-size: 12px; opacity: 0.8; font-weight: normal;">Test Left, Straight, Right codes at intersections</div>
+                    </button>
+                    <button onclick="loadDemoTrack('lineswitch')" style="background: #fd7e14; text-align: left; padding: 15px;">
+                        <div style="font-size: 16px;">↔️ Line Switching</div>
+                        <div style="font-size: 12px; opacity: 0.8; font-weight: normal;">Jump between parallel lines</div>
+                    </button>
+                    <button onclick="loadDemoTrack('special')" style="background: #6f42c1; text-align: left; padding: 15px;">
+                        <div style="font-size: 16px;">✨ Special Moves</div>
+                        <div style="font-size: 12px; opacity: 0.8; font-weight: normal;">Spin, Tornado, U-Turn</div>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
 <script>
     /** * CONFIGURATION 
      */
@@ -858,43 +888,124 @@
     }
 
     function loadDemo() {
+        // Open the demo menu modal
+        const modal = document.getElementById('demoModal');
+        modal.classList.add('show');
+    }
+
+    function closeDemoMenu() {
+        const modal = document.getElementById('demoModal');
+        modal.classList.remove('show');
+    }
+
+    function closeDemoModal(event) {
+        if (event.target === event.currentTarget) {
+            closeDemoMenu();
+        }
+    }
+
+    function loadDemoTrack(type) {
+        closeDemoMenu();
         clearGrid();
         
-        // ====== SIMPLE DEMO TRACK ======
-        // Simple rectangular loop with key color codes
-        
-        // Main rectangular track
-        // Top line (row 5)
-        for(let c=3; c<=16; c++) grid[5][c] = 'black';
-        // Right line (col 16)
-        for(let r=5; r<=14; r++) grid[r][16] = 'black';
-        // Bottom line (row 14)
-        for(let c=3; c<=16; c++) grid[14][c] = 'black';
-        // Left line (col 3)
-        for(let r=5; r<=14; r++) grid[r][3] = 'black';
-        
-        // Add some speed codes around the loop
-        // Top: Turbo (Blue-Green-Blue)
-        grid[5][7] = 'blue'; grid[5][8] = 'green'; grid[5][9] = 'blue';
-        
-        // Right: Slow (Red-Black-Red)
-        grid[9][16] = 'red'; grid[10][16] = 'black'; grid[11][16] = 'red';
-        
-        // Bottom: Fast (Blue-Black-Blue)
-        grid[14][12] = 'blue'; grid[14][11] = 'black'; grid[14][10] = 'blue';
-        
-        // Left: Cruise (Green-Black-Green) - back to normal
-        grid[11][3] = 'green'; grid[10][3] = 'black'; grid[9][3] = 'green';
-        
-        // Set Robot Start Position at bottom left
+        // Reset Robot to default start
         robot.r = GRID_H - 2; 
-        robot.c = 1; 
-        robot.dir = 1; // Facing East
+        robot.c = 2; 
+        robot.dir = 1; // East
         robot.speedDelay = 300;
         robot.nextTurn = null;
 
+        if (type === 'simple') {
+            // === ORIGINAL LOOP ===
+            // Top line (row 5)
+            for(let c=3; c<=16; c++) grid[5][c] = 'black';
+            // Right line (col 16)
+            for(let r=5; r<=14; r++) grid[r][16] = 'black';
+            // Bottom line (row 14)
+            for(let c=3; c<=16; c++) grid[14][c] = 'black';
+            // Left line (col 3)
+            for(let r=5; r<=14; r++) grid[r][3] = 'black';
+            
+            // Top: Turbo
+            grid[5][7] = 'blue'; grid[5][8] = 'green'; grid[5][9] = 'blue';
+            // Right: Slow
+            grid[9][16] = 'red'; grid[10][16] = 'black'; grid[11][16] = 'red';
+            // Bottom: Fast
+            grid[14][12] = 'blue'; grid[14][11] = 'black'; grid[14][10] = 'blue';
+            // Left: Cruise
+            grid[11][3] = 'green'; grid[10][3] = 'black'; grid[9][3] = 'green';
+
+            updateUI("Ready", "Cruise", "-", "Simple Loop Loaded!");
+        }
+        else if (type === 'special') {
+            // === SPECIAL MOVES ===
+            // Two parallel horizontal lines
+            const rSpin = 8;
+            const rTornado = 12;
+            
+            for(let c=1; c<GRID_W-1; c++) {
+                grid[rSpin][c] = 'black';
+                grid[rTornado][c] = 'black';
+            }
+            
+            // Line 1: Spin (Green-Red-Green-Red)
+            grid[rSpin][8] = 'green'; grid[rSpin][9] = 'red'; grid[rSpin][10] = 'green'; grid[rSpin][11] = 'red';
+            
+            // Line 2: Tornado (Red-Green-Red-Green)
+            grid[rTornado][8] = 'red'; grid[rTornado][9] = 'green'; grid[rTornado][10] = 'red'; grid[rTornado][11] = 'green';
+
+            // Start robot on the Spin line
+            robot.r = rSpin;
+            robot.c = 2;
+
+            updateUI("Ready", "Cruise", "-", "Spin & Tornado Lines Loaded!");
+        }
+        else if (type === 'lineswitch') {
+            // === LINE SWITCHING ===
+            // Two parallel horizontal lines
+            const r1 = 8;
+            const r2 = 12;
+            for(let c=1; c<GRID_W-1; c++) {
+                grid[r1][c] = 'black';
+                grid[r2][c] = 'black';
+            }
+            
+            // Switch Right (Red-Green-Red) on top line
+            grid[r1][6] = 'red'; grid[r1][7] = 'green'; grid[r1][8] = 'red';
+            
+            // Switch Left (Green-Red-Green) on bottom line
+            grid[r2][12] = 'green'; grid[r2][13] = 'red'; grid[r2][14] = 'green';
+            
+            robot.r = r1;
+            robot.c = 2;
+            updateUI("Ready", "Cruise", "-", "Line Switch Test Loaded!");
+        }
+        else if (type === 'turns') {
+            // === INTERSECTION TEST ===
+            // Cross shape
+            const midR = 10;
+            const midC = 10;
+            
+            // Horizontal
+            for(let c=2; c<19; c++) grid[midR][c] = 'black';
+            // Vertical
+            for(let r=2; r<19; r++) grid[r][midC] = 'black';
+            
+            // Left at Intersection (Green-Black-Red) coming from Left
+            grid[midR][6] = 'green'; grid[midR][7] = 'black'; grid[midR][8] = 'red';
+            
+            // Right at Intersection (Blue-Red-Green) coming from Top (if we placed robot there)
+            // But let's put another Left on the right side for the return trip (if u-turned)
+            
+            // Set robot start
+            robot.r = midR;
+            robot.c = 2;
+            robot.dir = 1;
+
+            updateUI("Ready", "Cruise", "-", "Intersection Test Loaded!");
+        }
+
         render();
-        updateUI("Ready", "Cruise", "-", "Demo Track Loaded!");
     }
 
     // Mouse Events
