@@ -456,6 +456,14 @@
                             <span>U-Turn (line end)</span>
                             <div class="code-viz"><div class="code-block" style="background:blue;"></div><div class="code-block" style="background:red;"></div></div>
                         </div>
+                        <div class="help-item">
+                            <span>Tornado</span>
+                            <div class="code-viz"><div class="code-block" style="background:red;"></div><div class="code-block" style="background:green;"></div><div class="code-block" style="background:red;"></div><div class="code-block" style="background:green;"></div></div>
+                        </div>
+                        <div class="help-item">
+                            <span>Spin</span>
+                            <div class="code-viz"><div class="code-block" style="background:green;"></div><div class="code-block" style="background:red;"></div><div class="code-block" style="background:green;"></div><div class="code-block" style="background:red;"></div></div>
+                        </div>
 
                         <div style="font-weight:bold; margin:10px 0 5px; font-size:12px; color:#666;">TIMER</div>
                         <div class="help-item">
@@ -556,6 +564,8 @@
 
         // === SPECIAL MOVES ===
         'blue-red':          { name: 'U-Turn (line end)', type: 'move', val: 'u-turn' },
+        'red-green-red-green': { name: 'Tornado', type: 'spin', val: 'tornado' },
+        'green-red-green-red': { name: 'Spin', type: 'spin', val: 'spin' },
         
         // === TIMER ===
         'red-black-blue-green': { name: 'Timer Stop', type: 'timer', val: null }
@@ -582,7 +592,9 @@
         lineSwitchLeftLine: false, // Whether robot has left the original line during line switch
         lineSwitchPendingTurn: null, // Stored turn direction for line switch (executed after code)
         lineSwitchInCode: false, // Whether robot is currently passing through line switch code
-        lineSwitchExitedCode: false // Whether robot has exited code and needs to move one more cell before turning
+        lineSwitchExitedCode: false, // Whether robot has exited code and needs to move one more cell before turning
+        pendingSpin: null,    // Stored spin action (tornado or spin) to execute after code
+        spinInCode: false     // Whether robot is currently passing through spin code
     };
 
     let drawColor = 'black';
@@ -615,6 +627,8 @@
         robot.lineSwitchPendingTurn = null;
         robot.lineSwitchInCode = false;
         robot.lineSwitchExitedCode = false;
+        robot.pendingSpin = null;
+        robot.spinInCode = false;
         updateUI("Idle", "Cruise", "-", "-");
         updateDirectionDisplay();
         updateTimerDisplay();
@@ -821,6 +835,8 @@
                 robot.lineSwitchPendingTurn = null; // Reset pending turn
                 robot.lineSwitchInCode = false; // Reset in-code state
                 robot.lineSwitchExitedCode = false; // Reset exited-code state
+                robot.pendingSpin = null; // Reset pending spin
+                robot.spinInCode = false; // Reset spin-in-code state
                 
                 // Update UI
                 updateDirectionDisplay();
@@ -973,6 +989,42 @@
         loopId = setTimeout(gameLoop, robot.speedDelay);
     }
 
+    function executeSpin(spinType) {
+        // Pause the robot and perform spin animation
+        const originalActive = robot.active;
+        robot.active = false; // Pause movement
+        
+        const spinName = spinType === 'tornado' ? 'Tornado' : 'Spin';
+        document.getElementById('statusAction').innerText = `Performing ${spinName}!`;
+        
+        let rotations = 0;
+        // Tornado: 720 degrees (8 steps), Fast speed
+        // Spin: 360 degrees (4 steps), Normal speed
+        const totalRotations = spinType === 'tornado' ? 8 : 4; 
+        const rotationDelay = spinType === 'tornado' ? 60 : 120; // Tornado is faster
+        
+        function rotateStep() {
+            if (rotations < totalRotations) {
+                robot.dir = (robot.dir + 1) % 4;
+                updateDirectionDisplay();
+                render();
+                rotations++;
+                setTimeout(rotateStep, rotationDelay);
+            } else {
+                // Spin complete, resume movement
+                document.getElementById('statusAction').innerText = `${spinName} complete!`;
+                robot.active = originalActive;
+                if (robot.active) {
+                    setTimeout(() => {
+                        gameLoop();
+                    }, 200); // Small delay before resuming
+                }
+            }
+        }
+        
+        rotateStep();
+    }
+
     function step() {
         const currColor = grid[robot.r][robot.c];
 
@@ -1005,9 +1057,12 @@
 
         // --- Code Detection at every cell ---
         // Read 7-cell window: 3 before, current, 3 after
-        // Skip code detection when in line switch mode
-        if (!robot.lineSwitchActive) {
+        // Skip code detection when in line switch mode or processing spin
+        if (!robot.lineSwitchActive && !robot.spinInCode) {
+            console.log("Calling checkCodes at position", robot.r, robot.c, "color:", currColor);
             checkCodes();
+        } else {
+            console.log("Skipping checkCodes - lineSwitchActive:", robot.lineSwitchActive, "spinInCode:", robot.spinInCode);
         }
 
         // --- Movement Logic ---
@@ -1035,6 +1090,23 @@
                 // Keep previous color during line switch mode
                 // robot.color stays the same
             }
+            
+            // Check if robot has exited spin code and is now on black cell - execute spin
+            if (robot.spinInCode) {
+                if (newColor === 'black') {
+                    console.log("Exited spin code, now on black cell - executing spin:", robot.pendingSpin);
+                    robot.spinInCode = false;
+                    executeSpin(robot.pendingSpin);
+                    robot.pendingSpin = null;
+                } else if (newColor === 'white') {
+                    // Lost the line while looking for black cell after spin code - cancel spin
+                    console.log("Lost line after spin code - canceling spin");
+                    robot.spinInCode = false;
+                    robot.pendingSpin = null;
+                    document.getElementById('statusAction').innerText = "Spin canceled";
+                }
+                // If still on colored cells (red/green/blue), keep moving
+            }
         } else {
             // Dead End
             stopRobot();
@@ -1050,19 +1122,11 @@
         const dr = [-1, 0, 1, 0];
         const dc = [0, 1, 0, -1];
         
-        // Read 7-cell window: 3 behind, current, 3 ahead
+        // CHANGED: Only read current cell + 3 cells ahead. Do NOT read behind.
+        // This prevents re-reading past cells or getting confused by previous path.
         const sequence = [];
         
-        // Read 3 cells behind (opposite of current direction)
-        for (let i = 3; i >= 1; i--) {
-            const r = robot.r - dr[robot.dir] * i;
-            const c = robot.c - dc[robot.dir] * i;
-            if (r >= 0 && r < GRID_H && c >= 0 && c < GRID_W) {
-                sequence.push(grid[r][c]);
-            }
-        }
-        
-        // Current cell
+        // Current cell (Index 0)
         sequence.push(grid[robot.r][robot.c]);
         
         // Read 3 cells ahead
@@ -1074,114 +1138,88 @@
             }
         }
         
-        // Try to match code patterns
-        if (sequence.length >= 3) {
-            let match = null;
-            
-            // Try 4-cell patterns first (for Timer)
-            if (!match && sequence.length >= 7) {
-                // Try center 4 cells (index 1,2,3,4 or 2,3,4,5)
-                let seq4 = sequence.slice(1, 5).join('-');
+        console.log("Sequence (Current+Ahead):", sequence.join('-'));
+        
+        let match = null;
+        
+        // === PRIORITY 1: Check 4-cell patterns starting at CURRENT cell ===
+        if (sequence.length >= 4) {
+            let seq4 = sequence.slice(0, 4).join('-');
+            if (CODES[seq4]) {
                 match = CODES[seq4];
-                if (!match) {
-                    seq4 = sequence.slice(2, 6).join('-');
-                    match = CODES[seq4];
+                console.log("✓ FOUND 4-cell pattern:", seq4, "Type:", CODES[seq4].type);
+            }
+        }
+        
+        // === PRIORITY 2: Check 3-cell patterns starting at CURRENT cell ===
+        // Only if no 4-cell match found
+        if (!match && sequence.length >= 3) {
+            let seq3 = sequence.slice(0, 3).join('-');
+            if (CODES[seq3]) {
+                // We found a 3-cell code. 
+                // Since we already checked 4-cell codes starting at 0 and didn't find one,
+                // this 3-cell code is NOT the prefix of a valid 4-cell code present right now.
+                // So it is safe to execute.
+                match = CODES[seq3];
+                console.log("✓ FOUND 3-cell pattern:", seq3, "Type:", CODES[seq3].type);
+            }
+        }
+        
+        // === Special Case: U-Turn (line end) ===
+        // U-turn executes when robot is on RED cell and previous was BLUE
+        if (!match && grid[robot.r][robot.c] === 'red') {
+            const prevR = robot.r - dr[robot.dir] * 1;
+            const prevC = robot.c - dc[robot.dir] * 1;
+            if (prevR >= 0 && prevR < GRID_H && prevC >= 0 && prevC < GRID_W) {
+                if (grid[prevR][prevC] === 'blue') {
+                    match = CODES['blue-red'];
                 }
             }
-            if (!match && sequence.length >= 6) {
-                let seq4 = sequence.slice(0, 4).join('-');
-                match = CODES[seq4];
-                if (!match) {
-                    seq4 = sequence.slice(3, 7).join('-');
-                    match = CODES[seq4];
-                }
-            }
-            if (!match && sequence.length >= 5) {
-                let seq4 = sequence.slice(1, 5).join('-');
-                match = CODES[seq4];
-            }
-            if (!match && sequence.length >= 4) {
-                let seq4 = sequence.slice(0, 4).join('-');
-                match = CODES[seq4];
-            }
-            
-            // Try 3-cell patterns in various positions within the 7-cell window
-            if (!match && sequence.length >= 7) {
-                // Try center 3 cells (index 2,3,4)
-                let seq3 = sequence.slice(2, 5).join('-');
-                match = CODES[seq3];
-            }
-            
-            // Try other 3-cell windows
-            if (!match && sequence.length >= 5) {
-                let seq3 = sequence.slice(1, 4).join('-');
-                match = CODES[seq3];
-            }
-            if (!match && sequence.length >= 4) {
-                let seq3 = sequence.slice(0, 3).join('-');
-                match = CODES[seq3];
-            }
-            if (!match && sequence.length >= 6) {
-                let seq3 = sequence.slice(3, 6).join('-');
-                match = CODES[seq3];
-            }
-            if (!match && sequence.length >= 3) {
-                let seq3 = sequence.slice(sequence.length - 3).join('-');
-                match = CODES[seq3];
-            }
-            
-            // Try 2-cell patterns (for U-turn line end)
-            // Special case: U-turn should execute when robot is on RED cell
-            if (!match && sequence.length >= 2 && grid[robot.r][robot.c] === 'red') {
-                // Check if the previous cell (1 behind) was blue
-                const prevR = robot.r - dr[robot.dir] * 1;
-                const prevC = robot.c - dc[robot.dir] * 1;
-                if (prevR >= 0 && prevR < GRID_H && prevC >= 0 && prevC < GRID_W) {
-                    if (grid[prevR][prevC] === 'blue') {
-                        // We have Blue-Red pattern and robot is on Red
-                        match = CODES['blue-red'];
-                    }
-                }
-            }
+        }
 
-            if (match) {
-                // Display the detected code
-                displayCode(match.name);
-                
-                // Execute actions based on type
-                if (match.type === 'speed') {
-                    // Speed codes execute immediately
-                    robot.speedDelay = match.val;
-                    document.getElementById('statusSpeed').innerText = match.name;
-                } 
-                else if (match.type === 'turn') {
-                    // Turn codes are stored for next intersection
-                    robot.nextTurn = match.val;
-                    document.getElementById('statusAction').innerText = "Next: " + match.name;
-                }
-                else if (match.type === 'lineswitch' && !robot.lineSwitchActive) {
-                    // Line switch: store turn direction, execute after passing the code
-                    // Only trigger if not already in line switch mode
-                    robot.lineSwitchPendingTurn = match.val;
-                    robot.lineSwitchInCode = true;
-                    robot.lineSwitchActive = true;
-                    robot.lineSwitchLeftLine = false; // Haven't left the line yet
-                    document.getElementById('statusAction').innerText = match.name + " - Detected";
-                    console.log("Line switch detected:", match.name, "Pending turn:", match.val);
-                }
-                else if (match.type === 'move' && match.name === 'U-Turn (line end)') {
-                    // U-turn executes immediately on the red cell
-                    robot.dir = (robot.dir + 2) % 4;
-                    updateDirectionDisplay();
-                }
-                else if (match.type === 'timer') {
-                    // Timer starts immediately
-                    const duration = parseInt(document.getElementById('timerDuration').value) || 30;
-                    robot.timerActive = true;
-                    robot.timerEndTime = Date.now() + (duration * 1000);
-                    updateTimerDisplay();
-                    document.getElementById('statusAction').innerText = `Timer: ${duration}s`;
-                }
+        if (match) {
+            // Display the detected code
+            displayCode(match.name);
+            
+            // Execute actions based on type
+            if (match.type === 'speed') {
+                // Speed codes execute immediately
+                robot.speedDelay = match.val;
+                document.getElementById('statusSpeed').innerText = match.name;
+            } 
+            else if (match.type === 'turn') {
+                // Turn codes are stored for next intersection
+                robot.nextTurn = match.val;
+                document.getElementById('statusAction').innerText = "Next: " + match.name;
+            }
+            else if (match.type === 'lineswitch' && !robot.lineSwitchActive) {
+                // Line switch: store turn direction, execute after passing the code
+                robot.lineSwitchPendingTurn = match.val;
+                robot.lineSwitchInCode = true;
+                robot.lineSwitchActive = true;
+                robot.lineSwitchLeftLine = false; 
+                document.getElementById('statusAction').innerText = match.name + " - Detected";
+                console.log("Line switch detected:", match.name, "Pending turn:", match.val);
+            }
+            else if (match.type === 'move' && match.name === 'U-Turn (line end)') {
+                // U-turn executes immediately on the red cell
+                robot.dir = (robot.dir + 2) % 4;
+                updateDirectionDisplay();
+            }
+            else if (match.type === 'spin' && !robot.spinInCode) {
+                // Spin: store spin action, execute at black cell after passing the code
+                robot.pendingSpin = match.val;
+                robot.spinInCode = true;
+                document.getElementById('statusAction').innerText = match.name + " - Detected";
+                console.log("Spin code detected:", match.name, "Pending spin:", match.val);
+            }
+            else if (match.type === 'timer') {
+                // Timer starts immediately
+                const duration = parseInt(document.getElementById('timerDuration').value) || 30;
+                robot.timerActive = true;
+                robot.timerEndTime = Date.now() + (duration * 1000);
+                updateTimerDisplay();
+                document.getElementById('statusAction').innerText = `Timer: ${duration}s`;
             }
         }
     }
