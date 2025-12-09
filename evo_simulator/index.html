@@ -437,16 +437,17 @@
                         </div>
 
                         <div style="font-weight:bold; margin:10px 0 5px; font-size:12px; color:#666;">LINE SWITCH</div>
+                        <div style="font-size:11px; color:#888; margin-bottom:8px; font-style:italic;">Turn and move across white space until next black line</div>
                         <div class="help-item">
-                            <span>Left</span>
+                            <span>Line Switch Left</span>
                             <div class="code-viz"><div class="code-block" style="background:green;"></div><div class="code-block" style="background:red;"></div><div class="code-block" style="background:green;"></div></div>
                         </div>
                         <div class="help-item">
-                            <span>Straight</span>
+                            <span>Line Switch Straight</span>
                             <div class="code-viz"><div class="code-block" style="background:green;"></div><div class="code-block" style="background:blue;"></div><div class="code-block" style="background:green;"></div></div>
                         </div>
                         <div class="help-item">
-                            <span>Right</span>
+                            <span>Line Switch Right</span>
                             <div class="code-viz"><div class="code-block" style="background:red;"></div><div class="code-block" style="background:green;"></div><div class="code-block" style="background:red;"></div></div>
                         </div>
 
@@ -549,9 +550,9 @@
         'blue-red-green':    { name: 'Right at Intersection',    type: 'turn', val: 'right' },
 
         // === LINE SWITCH CODES ===
-        'green-red-green':   { name: 'Line Switch Left',     type: 'turn', val: 'left' },
-        'green-blue-green':  { name: 'Line Switch Straight', type: 'turn', val: 'straight' },
-        'red-green-red':     { name: 'Line Switch Right',    type: 'turn', val: 'right' },
+        'green-red-green':   { name: 'Line Switch Left',     type: 'lineswitch', val: 'left' },
+        'green-blue-green':  { name: 'Line Switch Straight', type: 'lineswitch', val: 'straight' },
+        'red-green-red':     { name: 'Line Switch Right',    type: 'lineswitch', val: 'right' },
 
         // === SPECIAL MOVES ===
         'blue-red':          { name: 'U-Turn (line end)', type: 'move', val: 'u-turn' },
@@ -575,7 +576,13 @@
         active: false,
         nextTurn: null,       // Stored intersection command
         timerActive: false,   // Whether timer is running
-        timerEndTime: null    // When timer should stop robot
+        timerEndTime: null,   // When timer should stop robot
+        color: '#2c3e50',     // Robot body color
+        lineSwitchActive: false,  // Whether line switch mode is active
+        lineSwitchLeftLine: false, // Whether robot has left the original line during line switch
+        lineSwitchPendingTurn: null, // Stored turn direction for line switch (executed after code)
+        lineSwitchInCode: false, // Whether robot is currently passing through line switch code
+        lineSwitchExitedCode: false // Whether robot has exited code and needs to move one more cell before turning
     };
 
     let drawColor = 'black';
@@ -602,6 +609,12 @@
         robot.nextTurn = null;
         robot.timerActive = false;
         robot.timerEndTime = null;
+        robot.color = '#2c3e50';
+        robot.lineSwitchActive = false;
+        robot.lineSwitchLeftLine = false;
+        robot.lineSwitchPendingTurn = null;
+        robot.lineSwitchInCode = false;
+        robot.lineSwitchExitedCode = false;
         updateUI("Idle", "Cruise", "-", "-");
         updateDirectionDisplay();
         updateTimerDisplay();
@@ -802,6 +815,12 @@
                 robot.nextTurn = state.robot.nextTurn || null;
                 robot.timerActive = false; // Always reset timer
                 robot.timerEndTime = null;
+                robot.color = '#2c3e50'; // Reset to default color
+                robot.lineSwitchActive = false; // Reset line switch mode
+                robot.lineSwitchLeftLine = false; // Reset line switch state
+                robot.lineSwitchPendingTurn = null; // Reset pending turn
+                robot.lineSwitchInCode = false; // Reset in-code state
+                robot.lineSwitchExitedCode = false; // Reset exited-code state
                 
                 // Update UI
                 updateDirectionDisplay();
@@ -970,8 +989,9 @@
             return;
         }
 
-        // Lost Line Check
-        if (currColor === 'white') {
+        // Lost Line Check (but allow white during line switch mode)
+        if (currColor === 'white' && !robot.lineSwitchActive) {
+            console.log("Lost line - stopping. lineSwitchActive:", robot.lineSwitchActive);
             stopRobot();
             const btn = document.getElementById('playBtn');
             btn.textContent = "▶ Start Robot";
@@ -979,10 +999,16 @@
             updateUI("LOST LINE", "-", "-", "Stop");
             return;
         }
+        if (currColor === 'white' && robot.lineSwitchActive) {
+            console.log("On white cell but line switch active - continuing");
+        }
 
         // --- Code Detection at every cell ---
         // Read 7-cell window: 3 before, current, 3 after
-        checkCodes();
+        // Skip code detection when in line switch mode
+        if (!robot.lineSwitchActive) {
+            checkCodes();
+        }
 
         // --- Movement Logic ---
         const move = calculateMove();
@@ -993,6 +1019,21 @@
             if (robot.dir !== move.dir) {
                 robot.dir = move.dir;
                 updateDirectionDisplay();
+            }
+            
+            // Update robot color based on NEW cell position (after moving)
+            const newColor = grid[robot.r][robot.c];
+            if (newColor === 'red') {
+                robot.color = COLORS['red'];
+            } else if (newColor === 'green') {
+                robot.color = COLORS['green'];
+            } else if (newColor === 'blue') {
+                robot.color = COLORS['blue'];
+            } else if (newColor === 'black') {
+                robot.color = '#2c3e50'; // Default dark color
+            } else if (newColor === 'white' && robot.lineSwitchActive) {
+                // Keep previous color during line switch mode
+                // robot.color stays the same
             }
         } else {
             // Dead End
@@ -1118,6 +1159,16 @@
                     robot.nextTurn = match.val;
                     document.getElementById('statusAction').innerText = "Next: " + match.name;
                 }
+                else if (match.type === 'lineswitch' && !robot.lineSwitchActive) {
+                    // Line switch: store turn direction, execute after passing the code
+                    // Only trigger if not already in line switch mode
+                    robot.lineSwitchPendingTurn = match.val;
+                    robot.lineSwitchInCode = true;
+                    robot.lineSwitchActive = true;
+                    robot.lineSwitchLeftLine = false; // Haven't left the line yet
+                    document.getElementById('statusAction').innerText = match.name + " - Detected";
+                    console.log("Line switch detected:", match.name, "Pending turn:", match.val);
+                }
                 else if (match.type === 'move' && match.name === 'U-Turn (line end)') {
                     // U-turn executes immediately on the red cell
                     robot.dir = (robot.dir + 2) % 4;
@@ -1140,7 +1191,82 @@
         const dr = [-1, 0, 1, 0]; // N, E, S, W
         const dc = [0, 1, 0, -1];
         
-        // Find valid neighbors
+        // Line Switch Mode: move straight until finding a black cell
+        // Robot moves across any colored cells and white space during this mode
+        if (robot.lineSwitchActive) {
+            console.log("calculateMove: Line switch mode active, leftLine:", robot.lineSwitchLeftLine, "inCode:", robot.lineSwitchInCode, "exitedCode:", robot.lineSwitchExitedCode);
+            
+            // If we've exited the code and moved one cell, NOW execute the turn
+            if (robot.lineSwitchExitedCode) {
+                console.log("calculateMove: One cell after code, executing pending turn:", robot.lineSwitchPendingTurn);
+                robot.lineSwitchExitedCode = false;
+                
+                // Execute the pending turn NOW (one cell after the code)
+                if (robot.lineSwitchPendingTurn === 'left') {
+                    robot.dir = (robot.dir + 3) % 4;
+                    console.log("calculateMove: Turned left, new dir:", robot.dir);
+                } else if (robot.lineSwitchPendingTurn === 'right') {
+                    robot.dir = (robot.dir + 1) % 4;
+                    console.log("calculateMove: Turned right, new dir:", robot.dir);
+                }
+                // 'straight' keeps same direction
+                robot.lineSwitchPendingTurn = null;
+                updateDirectionDisplay();
+                document.getElementById('statusAction').innerText = "Turned - Searching...";
+            }
+            
+            const nr = robot.r + dr[robot.dir];
+            const nc = robot.c + dc[robot.dir];
+            
+            // Check if out of bounds
+            if (nr < 0 || nr >= GRID_H || nc < 0 || nc >= GRID_W) {
+                console.log("calculateMove: Hit border during line switch");
+                robot.lineSwitchActive = false;
+                robot.lineSwitchLeftLine = false;
+                robot.lineSwitchInCode = false;
+                robot.lineSwitchExitedCode = false;
+                robot.lineSwitchPendingTurn = null;
+                stopRobot();
+                const btn = document.getElementById('playBtn');
+                btn.textContent = "▶ Start Robot";
+                btn.className = "btn-play";
+                updateUI("Stopped", "-", "-", "Hit border during line switch");
+                return null; // Stop at border
+            }
+            
+            const nextColor = grid[nr][nc];
+            console.log("calculateMove: Next cell is", nextColor, "at", nr, nc);
+            
+            // Check if we're exiting the color code (moving from colored cell to black/white)
+            if (robot.lineSwitchInCode && (nextColor === 'black' || nextColor === 'white')) {
+                console.log("calculateMove: Exiting color code, will move one more cell before turning");
+                robot.lineSwitchInCode = false;
+                robot.lineSwitchExitedCode = true; // Flag to execute turn on next move
+                document.getElementById('statusAction').innerText = "Exited code - Moving...";
+            }
+            
+            // Check if we're leaving the black line (moving onto white or colored cell)
+            if (nextColor !== 'black' && !robot.lineSwitchLeftLine && !robot.lineSwitchInCode && !robot.lineSwitchExitedCode) {
+                console.log("calculateMove: Leaving black line, entering white/colored space");
+                robot.lineSwitchLeftLine = true;
+                document.getElementById('statusAction').innerText = "Crossing white space...";
+            }
+            
+            // If we've left the line and now found black, we found the new line!
+            if (nextColor === 'black' && robot.lineSwitchLeftLine) {
+                console.log("calculateMove: Found new black line! Deactivating line switch");
+                robot.lineSwitchActive = false;
+                robot.lineSwitchLeftLine = false;
+                document.getElementById('statusAction').innerText = "Line found!";
+            }
+            
+            // Continue moving in current direction
+            // Allow movement over white, red, green, blue - anything until we hit black after leaving line
+            return { r: nr, c: nc, dir: robot.dir };
+        }
+        
+        // Normal mode: Find valid neighbors
+        console.log("calculateMove: Normal mode, lineSwitchActive is false");
         let validMoves = [];
         for (let i = 0; i < 4; i++) {
             // No 180 flips unless dead end logic forces it later
@@ -1156,7 +1282,10 @@
             }
         }
 
-        if (validMoves.length === 0) return null; // Dead end
+        if (validMoves.length === 0) {
+            console.log("calculateMove: No valid moves found (dead end)");
+            return null; // Dead end
+        }
 
         // Intersection Handling
         if (validMoves.length > 1) {
@@ -1279,8 +1408,8 @@
         ctx.arc(cx, cy, radius, 0, Math.PI * 2);
         ctx.stroke();
 
-        // Robot body - dark circle
-        ctx.fillStyle = '#2c3e50';
+        // Robot body - colored circle based on current cell
+        ctx.fillStyle = robot.color;
         ctx.beginPath();
         ctx.arc(cx, cy, radius, 0, Math.PI * 2);
         ctx.fill();
