@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Raffle Wheel</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="app" aria-label="Raffle application">
+      <header class="app-header">
+        <h1>Raffle Picker</h1>
+        <p class="subhead">
+          Number mode: hold <kbd>Space</kbd> to spin and release to stop. Text mode: reset card and scratch to reveal.
+        </p>
+      </header>
+
+      <section class="tabs" aria-label="Mode selection">
+        <button id="tab-number" class="tab-button active" type="button" data-mode="number" aria-pressed="true">
+          Number Mode
+        </button>
+        <button id="tab-text" class="tab-button" type="button" data-mode="text" aria-pressed="false">
+          Text Mode
+        </button>
+      </section>
+
+      <section class="layout">
+        <section class="main-panel" aria-label="Raffle controls">
+          <section id="panel-number" class="mode-panel active" aria-label="Number mode controls">
+            <div class="controls-row">
+              <label>
+                Min
+                <input id="number-min" type="number" inputmode="numeric" value="0" />
+              </label>
+              <label>
+                Max
+                <input id="number-max" type="number" inputmode="numeric" value="100" />
+              </label>
+              <button id="apply-range" type="button">Apply Range</button>
+              <button id="reset-number-mode" type="button" class="secondary">Reset Number Mode</button>
+            </div>
+            <p id="number-error" class="error" role="alert"></p>
+          </section>
+
+          <section id="panel-text" class="mode-panel" aria-label="Text mode controls" hidden>
+            <label for="text-options">Options (one per line)</label>
+            <textarea id="text-options" rows="6" placeholder="Alice&#10;Bob&#10;Charlie"></textarea>
+            <div class="controls-row">
+              <button id="apply-options" type="button">Apply Options</button>
+              <button id="reset-scratch" type="button" class="secondary">Reset Scratch Card</button>
+              <button id="clear-text-options" type="button" class="secondary">Clear Text Options</button>
+            </div>
+            <p id="text-error" class="error" role="alert"></p>
+          </section>
+
+          <section id="wheel-section" class="wheel-section" aria-label="Number wheel area">
+            <div
+              id="wheel-focus"
+              class="wheel-focus"
+              tabindex="0"
+              role="application"
+              aria-label="Raffle wheel. Focus here, hold Space to spin and release to stop."
+            >
+              <canvas id="wheel" width="560" height="560" aria-hidden="true"></canvas>
+              <div class="pointer" aria-hidden="true"></div>
+            </div>
+          </section>
+
+          <section id="scratch-section" class="scratch-section" aria-label="Text scratch card" hidden>
+            <div class="scratch-card" aria-live="polite">
+              <div id="scratch-result" class="scratch-result">Click "Reset Scratch Card" to pick random text.</div>
+              <canvas
+                id="scratch-canvas"
+                class="scratch-canvas"
+                width="740"
+                height="280"
+                aria-label="Scratch surface to reveal selected text"
+              ></canvas>
+            </div>
+            <p class="hint">Drag mouse or finger over the card to scratch.</p>
+          </section>
+
+          <div id="status-row" class="status-row">
+            <p>
+              Status: <strong id="spin-status">Ready</strong>
+            </p>
+            <p>
+              Result: <strong id="spin-result">None</strong>
+            </p>
+          </div>
+        </section>
+
+        <aside id="history-panel" class="history-panel" aria-label="Removed numbers">
+          <h2>Removed Numbers</h2>
+          <p class="hint">Drawn numbers are removed in Number Mode.</p>
+          <ol id="removed-list" class="removed-list"></ol>
+        </aside>
+      </section>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>
